@@ -35,7 +35,7 @@ train_parser.add_argument('--test_path',  default=test_path, type=str,  help='')
 train_parser.add_argument('--lim',     default=None, type=int, help='size of data subset to use (for debugging)')
 train_parser.add_argument('--print_len', default=100,   type=int,  help='logging training print size')
 
-train_parser.add_argument('--epochs',  default=3,     type=int,   help='numer of epochs to train')
+train_parser.add_argument('--epochs',  default=10,     type=int,   help='numer of epochs to train')
 train_parser.add_argument('--lr',      default=1e-5,  type=float, help='training learning rate')
 train_parser.add_argument('--bsz',     default=4,     type=int,   help='training batch size')
 

@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, num_class, h_size=768, layers=2, heads=12):
+    def __init__(self, num_class, h_size=768, layers=1, heads=12):
         config = {'vocab_size':num_class+3, 
                   'd_model':768, 
                   'decoder_layers':layers,
@@ -28,6 +28,7 @@ class TransformerDecoder(nn.Module):
         #roll labels for teacher forcing
         labels = torch.roll(labels, 1, -1)    
         labels[:, 0] = self.start_tok     
+        labels[labels == -100] = self.pad_tok  
 
         #feed throug decoder
         H_dec = self.decoder.forward(

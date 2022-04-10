@@ -10,9 +10,9 @@ from types import SimpleNamespace
 # https://github.com/IBM/pytorch-seq2seq/blob/master/seq2seq/models/DecoderRNN.py
 
 class BeamDecoder:          
-    def decode(self, utt_embeds, beam_width=5):
+    def decode(self, encoder_outputs, encoder_mask, beam_width=5):
         output = []
-        for idx, utt_embeds in enumerate(utt_embeds): 
+        for idx, utt_embeds in enumerate(encoder_outputs): 
             # set up decoding, init queue and set start variables
             device = utt_embeds.device
             cur_utt = utt_embeds[0]
@@ -62,7 +62,7 @@ class DecoderRNN(nn.Module, BeamDecoder):
         self.embedding = nn.Embedding(num_class+1, embed_size) 
         self.num_class = num_class
         self.start_tok = num_class  # last token is start token
-
+        
         #make RNN decoder
         if cell_type.lower() == 'lstm':  self.rnn_cell = nn.LSTM
         elif cell_type.lower() == 'gru': self.rnn_cell = nn.GRU
@@ -75,14 +75,14 @@ class DecoderRNN(nn.Module, BeamDecoder):
         #output classifier
         self.classifier = nn.Linear(rnn_h_size, num_class)
 
-    def forward(self, encoder_H, encoder_mask, labels):
+    def forward(self, encoder_outputs, encoder_mask, labels):
         """teacher forcing training"""
         labels = torch.roll(labels, 1, -1)    #roll labels to use previous
         labels[:, 0] = self.start_tok         #set start token
         labels[labels==-100] = self.start_tok #pad all labels with -100
         label_embed = self.embedding(labels)  # [B, N]->[B, N, D_e]
         
-        rnn_inputs  = torch.cat((utt_embeds, label_embed), dim=-1)
+        rnn_inputs  = torch.cat((encoder_outputs, label_embed), dim=-1)
         output, (hn, cn) = self.rnn(rnn_inputs)
         y = self.classifier(output)         # [B, N, D]->[B, N, 43]
         return y

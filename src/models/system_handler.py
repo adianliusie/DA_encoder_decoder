@@ -9,9 +9,10 @@ from .models_src.rnn_decoder import DecoderRNN
 from .models_src.linear_head import LinearHead
 
 from .batchers import FlatBatcher
-from ..config import config 
+from ..helpers import DirManager
 
 class SystemHandler:
+    ### methods for making batcher #####################################
     @classmethod
     def batcher(cls, system:str, formatting=None, max_len:int=None):
         batchers = {'utt_trans':  FlatBatcher,
@@ -19,25 +20,17 @@ class SystemHandler:
                     'hier':       'HierBatcher'}
 
         batcher = batchers[system](formatting=formatting,
-                                    max_len=max_len)
+                                   max_len=max_len)
         return batcher
     
+    ### methods for making model  ###########################################
     @classmethod
-    def make_seq2seq(cls, transformer:str, encoder:str, decoder:str, 
-                      num_labels:int=None, system_args=None, C:'ConvHandler'=None):
+    def make_seq2seq(cls, transformer:str, encoder:str, decoder:str,  
+                     num_labels:int=None, system_args=None, C:=None, **kwargs):
         """ creates the sequential classification model """
 
-        trans_name = transformer
-        trans_model = get_transformer(trans_name)
+        trans_model = cls.make_transformer(transformer, system_args, C)
 
-        #add extra tokens if added into tokenizer
-        if len(C.tokenizer) != trans_model.config.vocab_size:
-            print('extending model')
-            trans_model.resize_token_embeddings(len(C.tokenizer)) 
-            
-        if system_args:
-            trans_model = cls.patch(trans_model, trans_name, system_args)
-        
         encoders = {'utt_trans':  TransUttEncoder, 
                     'word_trans': TransWordEncoder,
                     'hier':       'HierModel'}
@@ -53,20 +46,42 @@ class SystemHandler:
         return model
     
     @classmethod
-    def patch(cls, trans_model, trans_name, system_args):
+    def make_transformer(cls, trans_name:str, system_args=None, C=None):
+        """ prepares the chosen transformer """
+        trans_model = get_transformer(trans_name)
+        
+        #add extra tokens if added into tokenizer
+        if len(C.tokenizer) != trans_model.config.vocab_size:
+            print('extending model')
+            trans_model.resize_token_embeddings(len(C.tokenizer)) 
+            
+        if system_args:
+            trans_model = cls.patch_transformer(trans_model, trans_name, system_args)
+        
+        return trans_model
+    
+    @classmethod
+    def patch_transformer(cls, trans_model, trans_name, system_args):
         if ('spkr_embed' in system_args) or ('utt_embed' in system_args): 
             print('using speaker embeddings')
             trans_model = extra_embed(trans_model, trans_name)
 
-        if 'freeze-trans' in system_args:
-            self.freeze_trans(transformer)
-        
         return trans_model
+
+    ### util methods for models ###########################################
+
+    @classmethod
+    def load_encoder(cls, model_path):
+        ptrain_dir  = DirManager.load_dir(model_path)
+        p_args = ptrain_dir.load_args('model_args')
+        ptrain_model = cls.make_seq2seq(**p_args)
+        self.model.encoder = ptrain_model.encoder
              
     @staticmethod
-    def freeze_trans(transformer):
-        for param in transformer.encoder.parameters():
+    def freeze_encoder(transformer):
+        for param in self.model.encoder.parameters():
             param.requires_grad = False
+    
 
 class Seq2SeqModel(torch.nn.Module):
     """model for dealing with Autoregressive Systems"""
