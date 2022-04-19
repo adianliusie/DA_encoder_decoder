@@ -12,12 +12,12 @@ class CRFDecoder(nn.Module):
         
     def forward(self, encoder_outputs, encoder_mask, labels):
         emissions = self.classifier(encoder_outputs)
-        loss = self.CRF(emissions=emissions, tags=labels, mask=encoder_mask)
+        loss = self.CRF(emissions=emissions, tags=labels, mask=encoder_mask, reduction='mean')
         return -1 * loss
         
     def decode(self, encoder_outputs, encoder_mask):
         emissions = self.classifier(encoder_outputs)
-        output = self.CRF.decode(emissions=emissions, mask=encoder_mask, reduction='mean')
+        output = self.CRF.decode(emissions=emissions, mask=encoder_mask)
         return output
 
 # base on code from ->

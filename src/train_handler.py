@@ -113,7 +113,7 @@ class TrainHandler:
                 if args.sched == 'triangular': scheduler.step()
 
                 #accuracy logging
-                self.dir.update_cls_logger(loss=output.loss.item(), 
+                self.dir.update_cls_logger(loss=output.loss, 
                                            hits=output.hits, 
                                            num_preds=output.num_preds)
 
@@ -122,7 +122,7 @@ class TrainHandler:
                     self.dir.print_perf(epoch, k, args.print_len, 'train')
            
             #################################### Might want to delete
-            self.dir.log(f'epoch training time {time.time()-start:.2f} \n')
+            self.dir.log(f'epoch training time {time.time()-start:.2f}')
             #########################################################
             
             if not args.dev_path:
@@ -134,7 +134,7 @@ class TrainHandler:
                 dev_b = self.batcher(data=dev, bsz=1, shuffle=True)
                 for k, batch in enumerate(dev_b, start=1):
                     output = self.model_output(batch, decode=True, no_grad=True)
-                    self.dir.update_cls_logger(loss=output.loss.item(), 
+                    self.dir.update_cls_logger(loss=output.loss, 
                                                hits=output.hits, 
                                                num_preds=output.num_preds)
                    
@@ -150,8 +150,8 @@ class TrainHandler:
                 self.dir.reset_cls_logger()
                 test_b = self.batcher(data=test, bsz=1, shuffle=True)
                 for k, batch in enumerate(test_b, start=1):
-                    output = self.model_output(batch, no_grad=True)
-                    self.dir.update_cls_logger(loss=output.loss.item(), 
+                    output = self.model_output(batch, decode=True, no_grad=True)
+                    self.dir.update_cls_logger(loss=output.loss, 
                                                hits=output.hits, 
                                                num_preds=output.num_preds)
                 loss, acc = self.dir.print_perf(epoch, None, k, 'test')
@@ -189,16 +189,19 @@ class TrainHandler:
         elif self.model_args.encoder in ['hier']:
             system_inputs['conv_splits'] = batch.conv_splits
             
-        if self.model_args.decoder in ['transformer', 'rnn', 'crf']:
-            system_inputs['labels'] = batch.labels
-        
         #forward of the model in training
-        
         if (not decode) or (self.model_args.decoder=='linear'):
+            if self.model_args.decoder in ['transformer', 'rnn', 'crf']:
+                #add labels for autoreressive decoders
+                system_inputs['labels'] = batch.labels
+        
+            
             if self.model_args.decoder == 'crf':
+                #CRF only returns the loss
                 loss = self.model(trans_inputs, **system_inputs)
                 y, hits, num_preds = 0, 0, 0
             else:
+                #other models return logits
                 y = self.model(trans_inputs, **system_inputs)
 
                 #calculate cross entropy loss
@@ -212,6 +215,7 @@ class TrainHandler:
                 hits = torch.sum(hits[batch.labels != -100]).item()
                 num_preds = torch.sum(batch.labels != -100).item()
                 
+        #evaluation decoding (does not use the given labels)
         elif (decode and self.model_args.decoder=='crf'):
             preds = self.model.decode(trans_inputs, **system_inputs)
             preds = torch.LongTensor(preds).to(self.device)
