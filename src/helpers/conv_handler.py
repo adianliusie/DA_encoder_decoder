@@ -36,7 +36,7 @@ class Conversation():
 
 class ConvHandler:    
     def __init__(self, transformer, filters=None, 
-                       special_tokens=None, tqdm_disable=False):
+                 special_tokens=None, tqdm_disable=False):
         """ Initialises the Conversation helper """
         
         if transformer:
@@ -67,7 +67,7 @@ class ConvHandler:
 
         path = f'{config.base_dir}/data/{path}'
         raw_data = load_json(path)
-        self.load_label_info(path)
+        self.labels = self.load_label_info(path)
 
         data = [Conversation(conv) for conv in raw_data]
         data = self.process_data(data, lim, quiet)
@@ -81,13 +81,14 @@ class ConvHandler:
         if hasattr(self, 'label_dict'): self.get_label_names(data)
         return data
     
-    def load_label_info(self, path):
-        if not hasattr(self, 'label_dict'):
-            #replace filename before extension with `labels'
-            label_path = re.sub(r'\/(\w*?)\.', '/labels.', path)
-            if os.path.isfile(label_path): 
-                label_dict = load_json(label_path)
-                self.label_dict = {int(k):v for k, v in label_dict.items()}
+    @staticmethod
+    def load_label_info(path:str)->dict:
+        #replace filename before extension with `labels'
+        label_path = re.sub(r'\/(\w*?)\.json', '/labels.json', path)
+        if os.path.isfile(label_path): 
+            label_dict = load_json(label_path)
+            label_dict = {int(k):v for k, v in label_dict.items()}
+            return label_dict
                
     def clean_text(self, data:List[Conversation]):
         """ processes text depending on arguments. E.g. punct=True filters

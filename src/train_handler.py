@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 from typing import Tuple
 from tqdm.notebook import tqdm
+import time
 
 from .helpers import (ConvHandler, DirManager, SSHelper)
 from .models import SystemHandler
@@ -20,7 +21,6 @@ class TrainHandler:
     def __init__(self, exp_name, args:namedtuple):
         self.dir = DirManager(exp_name, args.temp)
         self.dir.save_args('model_args', args)
-
         self.set_up_helpers(args)
         
     def set_up_helpers(self, args): 
@@ -50,15 +50,15 @@ class TrainHandler:
                         C=self.C)
         
         self.device = args.device
-
+    
     def set_up_data_filtered(self, paths, lim:int)->list:
         data = [self.C.prep_filtered_data(path=path, max_len=self.max_len, 
                              lim=lim) if path else None for path in paths]
         return data
     
     def set_up_data(self, paths, lim:int)->list:
-        data = [self.C.prepare_data(path=path, max_len=self.max_len, 
-                       lim=lim) if path else None for path in paths]
+        data = [self.C.prepare_data(path=path, lim=lim)
+                   if path else None for path in paths]
         return data
     
     def set_up_opt(self, args:namedtuple):
@@ -84,35 +84,46 @@ class TrainHandler:
 
         paths = [args.train_path, args.dev_path, args.test_path]
  
-        train, dev, test = self.set_up_data_filtered(paths, args.lim)
-        #train, dev, test = self.set_up_data(paths, args)
+        #train, dev, test = self.set_up_data_filtered(paths, args.lim)
+        train, dev, test = self.set_up_data(paths, args.lim)
         optimizer, scheduler = self.set_up_opt(args)
         
         best_epoch = (-1, 10000, 0)
         for epoch in range(args.epochs):
+            #################################### Might want to delete
+            start = time.time()
+            #########################################################
+            
             self.model.train()
             self.dir.reset_cls_logger()
-            train_b = self.batcher(data=train, bsz=args.bsz, shuffle=True)
+            train_b = self.batcher(data=train, bsz=1, shuffle=True)
             
             for k, batch in enumerate(train_b, start=1):
                 #forward and loss calculation
                 output = self.model_output(batch)
-                loss = output.loss
-                
-                #updating model parameters
-                optimizer.zero_grad()
+                loss = output.loss/args.bsz
                 loss.backward()
-                optimizer.step()
+                
+                #update model parameters with synthetically large batch size
+                if k%args.bsz==0:
+                    optimizer.step()
+                    optimizer.zero_grad()
 
                 #update scheduler if step with each batch
                 if args.sched == 'triangular': scheduler.step()
 
                 #accuracy logging
-                self.dir.update_cls_logger(output)
+                self.dir.update_cls_logger(loss=output.loss.item(), 
+                                           hits=output.hits, 
+                                           num_preds=output.num_preds)
 
                 #print train performance every now and then
                 if k%args.print_len == 0:
                     self.dir.print_perf(epoch, k, args.print_len, 'train')
+           
+            #################################### Might want to delete
+            self.dir.log(f'epoch training time {time.time()-start:.2f} \n')
+            #########################################################
             
             if not args.dev_path:
                 self.save_model()
@@ -120,10 +131,12 @@ class TrainHandler:
                 self.model.eval()
                 self.dir.reset_cls_logger()
                 
-                dev_b = self.batcher(data=dev, bsz=args.bsz, shuffle=True)
+                dev_b = self.batcher(data=dev, bsz=1, shuffle=True)
                 for k, batch in enumerate(dev_b, start=1):
-                    output = self.model_output(batch, no_grad=True)
-                    self.dir.update_cls_logger(output)
+                    output = self.model_output(batch, decode=True, no_grad=True)
+                    self.dir.update_cls_logger(loss=output.loss.item(), 
+                                               hits=output.hits, 
+                                               num_preds=output.num_preds)
                    
                 # print dev performance 
                 loss, acc = self.dir.print_perf(epoch, None, k, 'dev')
@@ -135,10 +148,12 @@ class TrainHandler:
 
             if args.test_path:
                 self.dir.reset_cls_logger()
-                test_b = self.batcher(data=test, bsz=args.bsz, shuffle=True)
+                test_b = self.batcher(data=test, bsz=1, shuffle=True)
                 for k, batch in enumerate(test_b, start=1):
                     output = self.model_output(batch, no_grad=True)
-                    self.dir.update_cls_logger(output)
+                    self.dir.update_cls_logger(loss=output.loss.item(), 
+                                               hits=output.hits, 
+                                               num_preds=output.num_preds)
                 loss, acc = self.dir.print_perf(epoch, None, k, 'test')
 
             #update scheduler if step with each epoch
@@ -151,10 +166,10 @@ class TrainHandler:
         self.load_model()
 
     @toggle_grad
-    def model_output(self, batch):
+    def model_output(self, batch, decode=False):
         """flexible method for dealing with different set ups. 
            Returns loss and accuracy statistics"""
-        
+                
         trans_inputs = {'input_ids':batch.ids, 
                         'attention_mask':batch.mask}
         
@@ -169,25 +184,48 @@ class TrainHandler:
 
         #add model dependent arguments
         system_inputs = {}
-        system_inputs['utt_pos'] = batch.utt_pos
-        if self.model_args.decoder in ['transformer', 'rnn']:
+        if self.model_args.encoder in ['utt_trans']:
+            system_inputs['utt_pos'] = batch.utt_pos
+        elif self.model_args.encoder in ['hier']:
+            system_inputs['conv_splits'] = batch.conv_splits
+            
+        if self.model_args.decoder in ['transformer', 'rnn', 'crf']:
             system_inputs['labels'] = batch.labels
         
-        y = self.model(trans_inputs, **system_inputs)
+        #forward of the model in training
         
-        if len(batch.labels.shape) == 2:
-            loss = F.cross_entropy(y.view(-1, y.shape[-1]), 
-                                   batch.labels.view(-1))
-        else:  
-            loss = F.cross_entropy(y, batch.labels)
-        
-        hits = torch.argmax(y, dim=-1) == batch.labels
-        hits = torch.sum(hits[batch.labels != -100]).item()
-        num_preds = torch.sum(batch.labels != -100).item()
+        if (not decode) or (self.model_args.decoder=='linear'):
+            if self.model_args.decoder == 'crf':
+                loss = self.model(trans_inputs, **system_inputs)
+                y, hits, num_preds = 0, 0, 0
+            else:
+                y = self.model(trans_inputs, **system_inputs)
+
+                #calculate cross entropy loss
+                if len(batch.labels.shape) == 2:
+                    loss = F.cross_entropy(y.view(-1, y.shape[-1]), batch.labels.view(-1))
+                else:  
+                    loss = F.cross_entropy(y, batch.labels)
+
+                #return accuracy metrics
+                hits = torch.argmax(y, dim=-1) == batch.labels
+                hits = torch.sum(hits[batch.labels != -100]).item()
+                num_preds = torch.sum(batch.labels != -100).item()
+                
+        elif (decode and self.model_args.decoder=='crf'):
+            preds = self.model.decode(trans_inputs, **system_inputs)
+            preds = torch.LongTensor(preds).to(self.device)
+            hits = (preds == batch.labels)
+            hits = torch.sum(hits[batch.labels != -100]).item()
+            num_preds = torch.sum(batch.labels != -100).item()
+            y, loss = 0, 0
+            
         return SimpleNamespace(loss=loss, logits=y,
                                hits=hits, num_preds=num_preds)
 
-    #############   SAVING AND LOADING    #############
+    #############   MODEL UTILS      ##################
+    def load_encoder(self, path, freeze=False):
+        self.model = SystemHandler.load_encoder(self.model, path, freeze=True)
     
     def save_model(self, name='base'):
         device = next(self.model.parameters()).device

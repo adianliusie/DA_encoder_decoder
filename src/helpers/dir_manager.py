@@ -56,15 +56,20 @@ class DirManager:
     ### Methods for Logging performance ###############################
 
     def reset_cls_logger(self):
-        self.perf = np.zeros(3)
-            
-    def update_cls_logger(self, out):
-        self.perf += [out.loss.item(), out.hits, out.num_preds]
+        self.cum_loss  = 0
+        self.cum_hits  = 0
+        self.cum_preds = 0
+
+    def update_cls_logger(self, loss=0, hits=0, num_preds=0):
+        self.cum_loss  += loss
+        self.cum_hits  += hits
+        self.cum_preds += num_preds
         
     def print_perf(self, epoch:int, k:int, print_len:int, mode='train'):
         """returns and logs performance"""
-        loss = f'{self.perf[0]/print_len:.3f}'
-        acc  = f'{self.perf[1]/self.perf[2]:.3f}'
+        loss = f'{self.cum_loss/print_len:.3f}'
+        acc  = f'{self.cum_hits/self.cum_preds:.3f}' if self.cum_preds else 0
+        
         if mode == 'train':
             self.update_curve(mode, epoch, float(loss), float(acc))
             self.log(f'{epoch:<3} {k:<5}   loss {loss}   acc {acc}')
@@ -75,7 +80,7 @@ class DirManager:
             self.log(f'{epoch:<3} TEST    loss {loss}   acc {acc}')
         self.reset_cls_logger()
         return float(loss), float(acc) 
-                              
+                   
     def update_curve(self, mode, *args):
         """ logs any passed arguments into a file"""
         with open(f'{self.path}/{mode}.csv', 'a+') as f:
@@ -116,6 +121,15 @@ class DirManager:
         
         dir_manager.log = print
         return dir_manager
+    
+    @classmethod
+    def load_ensemble_dir(cls, exp_name:str, hpc=False)->'DirManager':
+        base_dir = f'{BASE_DIR}/{exp_name}'
+        
+        seeds = []
+        for seed in os.listdir(base_dir):
+            seeds.append(f'{exp_name}/{seed}')
+        return seeds
     
     def load_args(self, name:str)->SimpleNamespace:
         args = load_json(f'{self.path}/{name}.json')

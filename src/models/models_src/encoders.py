@@ -46,6 +46,14 @@ class HierEncoder(torch.nn.Module):
         super().__init__()
         self.transformer = transformer
 
-    def forward(self, trans_args, utt_pos=None):
-        H = self.transformer(**trans_args).last_hidden_state #[bsz, L, 768]
-        #not implemented
+    def forward(self, trans_args, conv_splits, **kwargs):
+        H = self.transformer(**trans_args).last_hidden_state #[N*bsz, L, 768]
+        utt_embeds = H[:, 0]                                 #[N*bsz, 768]
+        
+        # all utterances from all cvonersations where processed in the same tensor, 
+        # now grouping the utterances back into conversations
+        utt_embeds = [utt_embeds[i:j] for (i, j) in conv_splits]
+        utt_embeds = pad_sequence(utt_embeds, batch_first=True, padding_value=0.0)
+        utt_mask = torch.all((utt_embeds!=0), dim=-1)
+        
+        return utt_embeds, utt_mask

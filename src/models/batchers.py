@@ -117,3 +117,40 @@ class FlatBatcher(BaseBatcher):
             raise ValueError('invalid sequence formatting')
         return utt_ids, utt_pos_seq
 
+class HierBatcher(BaseBatcher):
+    def batchify(self, batch:List[list]):
+        """each input is input ids and mask for utt, + label"""
+        ids, spkrs, labels = zip(*batch)  
+        
+        # save conv start and end positions as about to be flattened
+        conv_lens = [len(conv) for conv in ids]
+        cum_lens = np.cumsum([0] + conv_lens)
+        conv_splits = [(cum_lens[i], cum_lens[i+1]) \
+                              for i in range(len(conv_lens))]
+        
+        # flatten inputs to 2D tensor for parallel processing
+        flat_ids = flatten(ids)
+        ids, mask = self._get_padded_ids(flat_ids)
+        
+        #labels are returned in full dim
+        labels = self._pad_seq(labels, pad_val=-100)
+                
+        return SimpleNamespace(ids=ids, mask=mask, labels=labels, 
+                   spkr_ids=spkrs, conv_splits=conv_splits)
+    
+    def _prep_convs(self, data:List['Conversations']):
+        """ sequence classification input data preparation"""
+        output = []
+        for conv in data:
+            #get all utterances in conv and labels
+            ids = [utt.ids for utt in conv.utts]
+            spkrs = [utt.spkr_id[0] for utt in conv.utts]
+            labels = [utt.label for utt in conv]
+                 
+            #add to data set    
+            #max_utt_len = max([len(i) for i in ids])
+            if self.max_len==None or len(ids)<self.max_len:
+                output.append([ids, spkrs, labels])
+                
+        return output
+    

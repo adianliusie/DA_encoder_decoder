@@ -25,19 +25,23 @@ model_parser.add_argument('--num_seeds',  default=1,         type=int,  help='nu
 #### ArgParse for Training details
 train_parser = argparse.ArgumentParser(description='Arguments for training the system')
 
-tr_path = f"swda_standard/train.json"
-dev_path = f"swda_standard/dev.json"
-test_path = f"swda_standard/test.json"
+tr_path = f"swda/standard/train.json"
+dev_path = f"swda/standard/dev.json"
+test_path = f"swda/standard/test.json"
+
+#temp
+#dev_path = None
+#test_path = None
 
 train_parser.add_argument('--train_path', default=tr_path,   type=str,  help='')
 train_parser.add_argument('--dev_path',   default=dev_path,  type=str,  help='')
 train_parser.add_argument('--test_path',  default=test_path, type=str,  help='')
-train_parser.add_argument('--lim',        default=None,      type=int, help='size of data subset to use (for debugging)')
-train_parser.add_argument('--print_len',   default=100,      type=int,  help='logging training print size')
+train_parser.add_argument('--lim',     default=None, type=int, help='size of data subset to use (for debugging)')
+train_parser.add_argument('--print_len', default=100,   type=int,  help='logging training print size')
 
-train_parser.add_argument('--epochs',  default=10,    type=int,   help='numer of epochs to train')
-train_parser.add_argument('--lr',      default=2e-5,  type=float, help='training learning rate')
-train_parser.add_argument('--bsz',     default=2,     type=int,   help='training batch size')
+train_parser.add_argument('--epochs',  default=10,     type=int,   help='numer of epochs to train')
+train_parser.add_argument('--lr',      default=1e-5,  type=float, help='training learning rate')
+train_parser.add_argument('--bsz',     default=1,     type=int,   help='training batch size')
 
 train_parser.add_argument('--optim',   default='adamw', type=str, help='which optimizer to use (adam, adamw)')
 train_parser.add_argument('--sched',   default=None,   type=str,  help='which scheduler to use (triangle, exponential, step)')
@@ -52,6 +56,7 @@ if __name__ == '__main__':
 
     if model_args.num_seeds == 1:
         trainer = TrainHandler(model_args.exp_name, model_args)
+        trainer.load_encoder('load_debug')
         trainer.train(train_args)
     else:
         for i in range(model_args.num_seeds):

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 from typing import Tuple
 from tqdm.notebook import tqdm
-from abc import ABCMeta
 
 from ..train_handler import TrainHandler
 from ..helpers import (ConvHandler, DirManager, SSHelper)
@@ -14,7 +13,7 @@ from ..models import SystemHandler
 from ..utils import (no_grad, toggle_grad, make_optimizer, 
                      make_scheduler)
 
-class BaseLoader(TrainHandler, metaclass=ABCMeta):
+class BaseLoader(TrainHandler):
     """"base class for running all sequential sentence 
         evaluation and analysis on trained models"""
     
@@ -32,18 +31,6 @@ class BaseLoader(TrainHandler, metaclass=ABCMeta):
         self.load_model()
         self.model.eval()
     
-    #util methods to change parellel set up 
-    def parallelise(self):
-        self.model, self.batcher = SystemHandler.parallelise(
-            model=self.model, batcher=self.batcher)
-        self.model_args.system = 'whole'
-        
-    def deparallelise(self):
-        self.model, self.batcher = SystemHandler.deparallelise(
-            model=self.model, batcher=self.batcher)
-        self.model_args.system = 'window'
-
-        
 class EvalHandler(BaseLoader):
     @no_grad
     def evaluate(self, args:namedtuple):
@@ -66,3 +53,42 @@ class EvalHandler(BaseLoader):
         loss, acc = self.dir.print_perf(0, None, k, 'test')
         return (loss, acc)
     
+    @no_grad
+    def predictions(self, eval_data=None, eval_path=None):
+        """ output predictions for test set"""
+        self.model.eval()
+        
+        if not eval_data:
+            eval_data = self.C.prepare_data(path=eval_path)
+        
+        eval_batches = self.batcher(data=eval_data, 
+                                    bsz=1, shuffle=False)
+        
+        predictions, labels = [], []
+        for k, batch in tqdm(enumerate(eval_batches, start=1)):
+            output = self.model_output(batch)
+            y = F.softmax(output.logits.squeeze(0), dim=-1)
+            predictions.append(y.cpu().numpy())
+            labels.append(batch.labels.squeeze(0).cpu().numpy())
+        return predictions, labels
+
+class EnsembleEvaluator():
+    def __init__(self, exp_name:str):
+        seed_names = DirManager.load_ensemble_dir(exp_name)
+        self.seeds = (EvalHandler(seed) for seed in seed_names)
+        self.C = EvalHandler(seed_names[0]).C
+        
+    def predictions(self, eval_path):
+        eval_data = self.C.prepare_data(path=eval_path)
+        
+        ensemble = []
+        for seed in self.seeds:
+            preds, labels = seed.predictions(eval_data)
+            ensemble.append(preds)
+            
+        return ensemble, labels
+        
+            
+            
+            
+            

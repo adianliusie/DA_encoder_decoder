@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, num_class, h_size=768, layers=1, heads=12):
+    def __init__(self, num_class, h_size=768, layers=2, heads=12):
         config = {'vocab_size':num_class+3, 
                   'd_model':768, 
                   'decoder_layers':layers,
@@ -29,11 +29,15 @@ class TransformerDecoder(nn.Module):
         labels = torch.roll(labels, 1, -1)    
         labels[:, 0] = self.start_tok     
         labels[labels == -100] = self.pad_tok  
-
-        #feed throug decoder
+        
+        #add positional embeddings to encoder
+        positions = self.decoder.embed_positions(encoder_outputs.size()[:-1])
+        encoder_outputs += positions
+        
+        #feed through decoder
         H_dec = self.decoder.forward(
                 input_ids=labels,
-                attention_mask=None,
+                attention_mask=encoder_mask,
                 encoder_hidden_states=encoder_outputs,
                 encoder_attention_mask=encoder_mask,
                 return_dict=True)

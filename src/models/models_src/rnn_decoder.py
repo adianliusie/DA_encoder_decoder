@@ -55,13 +55,14 @@ class BeamDecoder:
     
 class DecoderRNN(nn.Module, BeamDecoder):
     def __init__(self, num_class, cell_type='lstm', embed_size=10, h_size=768, rnn_h_size=768, dropout=0.0):
-        '''RNN decoder which when given a sequence of vectors, outputs sequence of decisions'''
+        '''RNN decoder which when given a sequence of vectors, outputs sequence of decisions.
+           Only for sequence labelling tasks (i.e. x_{1:N} -> y_{1:N}) and does not learn stopping'''
         super().__init__()
         
         #make embeddings for labels
         self.embedding = nn.Embedding(num_class+1, embed_size) 
         self.num_class = num_class
-        self.start_tok = num_class  # last token is start token
+        self.start_tok = num_class  # the start token is the last id
         
         #make RNN decoder
         if cell_type.lower() == 'lstm':  self.rnn_cell = nn.LSTM

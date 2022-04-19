@@ -13,12 +13,12 @@ def no_grad(func:Callable):
 
 def toggle_grad(func:Callable):
     """decorator which lets one toggle gradients with argument"""
-    def inner(*args, no_grad:bool=False):
+    def inner(*args, no_grad:bool=False, **kwargs):
         if no_grad==True:
             with torch.no_grad():
-                return func(*args)
+                return func(*args, **kwargs)
         else:
-            return func(*args)
+            return func(*args, **kwargs)
     return inner
 
 #############   OPTIMIZERS  ############### 
