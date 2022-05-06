@@ -1,12 +1,14 @@
-import torch
-import torch.nn.functional as F
+import wandb
 import numpy as np
+import torch
+
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
 from collections import namedtuple
 from types import SimpleNamespace
-import matplotlib.pyplot as plt
 from typing import Tuple
 from tqdm.notebook import tqdm
-import time
 
 from .helpers import (ConvHandler, DirManager, SSHelper)
 from .models import SystemHandler
@@ -32,17 +34,17 @@ class TrainHandler:
         if (args.formatting == 'spkr_sep'):
             special_tokens += ['[SPKR_1]', '[SPKR_2]']
         
-        self.C = ConvHandler(transformer=args.transformer, 
+        self.C = ConvHandler(system=args.system, 
                              filters=args.filters, 
                              special_tokens=special_tokens)
 
         self.batcher = SystemHandler.batcher(
                            formatting=args.formatting,
-                           system=args.encoder,
+                           encoder=args.encoder,
                            max_len=args.max_len)
         
         self.model = SystemHandler.make_seq2seq(
-                        transformer=args.transformer,
+                        system=args.system,
                         encoder=args.encoder, 
                         decoder=args.decoder, 
                         system_args=args.system_args,
@@ -50,11 +52,6 @@ class TrainHandler:
                         C=self.C)
         
         self.device = args.device
-    
-    def set_up_data_filtered(self, paths, lim:int)->list:
-        data = [self.C.prep_filtered_data(path=path, max_len=self.max_len, 
-                             lim=lim) if path else None for path in paths]
-        return data
     
     def set_up_data(self, paths, lim:int)->list:
         data = [self.C.prepare_data(path=path, lim=lim)
@@ -79,32 +76,51 @@ class TrainHandler:
     ######  Methods For Dialogue Act Classification  ##########
     
     def train(self, args:namedtuple):
+        
+        ### INITIALISE WANDB
+        if args.wandb:
+            wandb.init(project=f'SWDA-{args.wandb}', entity="adian", 
+                       name=self.dir.exp_name, reinit=True)
+            
+            ### SAVE EXPEIRMENT ARGS FOR WANDB
+            cfg = {k:v for k, v in vars(args).items() if k in
+                               ['bsz', 'epochs', 'sched', 'lr', 'optim', 'layer']}
+            cfg['encoder'] = self.model_args.encoder
+            cfg['decoder'] = self.model_args.decoder
+            
+            if self.model_args.system_args:
+                num_layers =  [i for i in self.model_args.system_args if 'layers' in i]
+                rand_layers = [i for i in self.model_args.system_args if 'rand' in i]
+                cfg['layers']      = next(iter(num_layers),  None)
+                cfg['rand_layers'] = next(iter(rand_layers), None)
+                
+            wandb.config.update(cfg) 
+            
+            #### SET EVAL METRICS
+            wandb.define_metric("dev_loss", step_metric="epoch" ,summary="min")
+            wandb.define_metric("dev_acc",  step_metric="epoch", summary="max")
+            wandb.watch(self.model)
+
         self.dir.save_args('train_args', args)
         self.to(self.device)
 
         paths = [args.train_path, args.dev_path, args.test_path]
  
-        #train, dev, test = self.set_up_data_filtered(paths, args.lim)
         train, dev, test = self.set_up_data(paths, args.lim)
         optimizer, scheduler = self.set_up_opt(args)
         
         best_epoch = (-1, 10000, 0)
         for epoch in range(args.epochs):
-            #################################### Might want to delete
-            start = time.time()
-            #########################################################
-            
             self.model.train()
             self.dir.reset_cls_logger()
             train_b = self.batcher(data=train, bsz=1, shuffle=True)
             
             for k, batch in enumerate(train_b, start=1):
-                #forward and loss calculation
                 output = self.model_output(batch)
                 loss = output.loss/args.bsz
                 loss.backward()
                 
-                #update model parameters with synthetically large batch size
+                ### SYNTHETICALLY ALLOWS LARGE BATCH SIZES
                 if k%args.bsz==0:
                     optimizer.step()
                     optimizer.zero_grad()
@@ -119,14 +135,11 @@ class TrainHandler:
 
                 #print train performance every now and then
                 if k%args.print_len == 0:
-                    self.dir.print_perf(epoch, k, args.print_len, 'train')
-           
-            #################################### Might want to delete
-            self.dir.log(f'epoch training time {time.time()-start:.2f}')
-            #########################################################
-            
+                    loss, acc = self.dir.print_perf(epoch, k, args.print_len, 'train')
+                    if args.wandb: wandb.log({"epoch":epoch, "loss":loss, "acc":acc})
+
             if not args.dev_path:
-                self.save_model()
+                if args.save: self.save_model()
             else:
                 self.model.eval()
                 self.dir.reset_cls_logger()
@@ -140,10 +153,11 @@ class TrainHandler:
                    
                 # print dev performance 
                 loss, acc = self.dir.print_perf(epoch, None, k, 'dev')
+                if args.wandb: wandb.log({"dev_loss":loss, "dev_acc":acc})
 
                 # save performance if best dev performance 
                 if acc > best_epoch[2]:
-                    self.save_model()
+                    if args.save: self.save_model()
                     best_epoch = (epoch, loss, acc)
 
             if args.test_path:
@@ -224,7 +238,7 @@ class TrainHandler:
             num_preds = torch.sum(batch.labels != -100).item()
             y, loss = 0, 0
             
-        return SimpleNamespace(loss=loss, logits=y,
+        return SimpleNamespace(loss=loss, y=y,
                                hits=hits, num_preds=num_preds)
 
     #############   MODEL UTILS      ##################

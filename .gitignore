@@ -2,6 +2,8 @@ data
 src/config.py
 trained_models
 scripts
+wandb
+exp
 
 */.ipynb_checkpoints/
 .ipynb_checkpoints/

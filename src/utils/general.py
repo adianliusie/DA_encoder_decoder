@@ -6,6 +6,8 @@ import subprocess
 import os
 from ..config import config
 
+### Basic Util functions for loading existing data #########################
+
 def load_json(path:str)->dict:
     with open(path) as jsonFile:
         data = json.load(jsonFile)
@@ -16,16 +18,16 @@ def load_list(path:str)->list:
         conv_ids = f.readlines()
         conv_ids = [i.replace('\n', '') for i in conv_ids]
     return conv_ids
+      
+def save_json(path, conv_dict):
+    with open(path, "x") as outfile:
+        json.dump(conv_dict, outfile)
+
+### Other utility functions ################################################
 
 def flatten(x:list)->list:
     """ flattens list [[1,2,3],[4],[5,6]] to [1,2,3,4,5,6]"""
     return [tok for sent in x for tok in sent]
-
-def pairs(x:list)->List[Tuple]: 
-    """ given list [x1, x2, x3, x4], returns 
-        [(x1, x2), (x2, x3), (x3, x4)]"""
-    outcome = [(x[i], x[i+1]) for i in range(len(x)-1)]
-    return outcome
 
 def join_namespace(args_1:namedtuple, args_2:namedtuple):
     """given 2 namedtuple/SimpleNamespace, adds all arguents

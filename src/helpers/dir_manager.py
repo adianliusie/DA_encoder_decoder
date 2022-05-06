@@ -65,7 +65,7 @@ class DirManager:
         self.cum_hits  += hits
         self.cum_preds += num_preds
         
-    def print_perf(self, epoch:int, k:int, print_len:int, mode='train'):
+    def print_perf(self, epoch:int, k:int, print_len:int, mode='train', reset=True):
         """returns and logs performance"""
         loss = f'{self.cum_loss/print_len:.3f}'
         acc  = f'{self.cum_hits/self.cum_preds:.3f}' if self.cum_preds else 0
@@ -78,7 +78,9 @@ class DirManager:
             self.log(f'{epoch:<3} DEV     loss {loss}   acc {acc}')
         elif mode == 'test':
             self.log(f'{epoch:<3} TEST    loss {loss}   acc {acc}')
-        self.reset_cls_logger()
+            
+        if reset:    self.reset_cls_logger()
+            
         return float(loss), float(acc) 
                    
     def update_curve(self, mode, *args):

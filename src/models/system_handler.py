@@ -6,42 +6,44 @@ from .embed_patch.extra_embed import extra_embed
 
 from .batchers import FlatBatcher, HierBatcher
 from ..helpers.dir_manager import DirManager
-from .models_src.encoders import TransUttEncoder, TransWordEncoder, HierEncoder
 
-#different decoders source code
-from .models_src.transformer_decoder import TransformerDecoder
-from .models_src.rnn_decoder import DecoderRNN
-from .models_src.linear_head import LinearHead
-from .models_src.crf_decoder import CRFDecoder
-
+#different encodersdecoders source code
+from .encoders.encoders import TransUttEncoder, TransWordEncoder, HierEncoder
+from .decoders import RNNDecoder, LinearHead, CRFDecoder, TransformerDecoder
+from .encoders.sas_encoder import SASEncoder
 
 class SystemHandler:
     ### methods for making batcher #####################################
     @classmethod
-    def batcher(cls, system:str, formatting=None, max_len:int=None):
+    def batcher(cls, encoder:str, formatting=None, max_len:int=None):
         batchers = {'utt_trans':  FlatBatcher,
                     'word_trans': FlatBatcher,
-                    'hier':       HierBatcher}
+                    'hier':       HierBatcher, 
+                    'sas':        HierBatcher}
 
-        batcher = batchers[system](formatting=formatting,
-                                   max_len=max_len)
+        batcher = batchers[encoder](formatting=formatting,
+                                    max_len=max_len)
         return batcher
     
     ### methods for making model  ###########################################
     @classmethod
-    def make_seq2seq(cls, transformer:str, encoder:str, decoder:str,  
+    def make_seq2seq(cls, system:str, encoder:str, decoder:str,  
                      num_labels:int=None, system_args=None, C=None, **kwargs):
         """ creates the sequential classification model """
 
-        trans_model = cls.make_transformer(transformer, system_args, C)
-
+        if system == 'glove': 
+            trans_model = None
+        else:
+            trans_model = cls.make_transformer(system, system_args, C)
+        
         encoders = {'utt_trans':  TransUttEncoder, 
                     'word_trans': TransWordEncoder,
-                    'hier':       HierEncoder}
+                    'hier':       HierEncoder,
+                    'sas':        SASEncoder}
         
         decoders = {'linear':      LinearHead,
                     'transformer': TransformerDecoder,
-                    'rnn':         DecoderRNN, 
+                    'rnn':         RNNDecoder, 
                     'crf':         CRFDecoder}
 
         #select the chosen encoder and decoder
@@ -57,7 +59,7 @@ class SystemHandler:
         
         #add extra tokens if added into tokenizer
         if C and len(C.tokenizer) != trans_model.config.vocab_size:
-            print('extending model')
+            print('extending embeddings of model')
             trans_model.resize_token_embeddings(len(C.tokenizer)) 
             
         if system_args:
@@ -67,9 +69,30 @@ class SystemHandler:
     
     @classmethod
     def patch_transformer(cls, trans_model, trans_name, system_args):
+        options = len(system_args)
+        # --system_args 8_layers ->   then only have 8 layers in transformer
+        if any(['layers' in i for i in system_args]):
+            layer_arg = [i for i in system_args if 'layers' in i][0]
+            num_layers = int(layer_arg.split('_')[0])
+            trans_model.encoder.layer = trans_model.encoder.layer[:num_layers]
+            print(f'using {num_layers} transformer layers')
+            options -= 1
+            
+        # --system_args 3_rand ->     then randomize last 3 layers of transformer
+        if any(['rand' in i for i in system_args]):
+            rand_arg = [i for i in system_args if 'rand' in i][0]
+            num_rand_layers = int(rand_arg.split('_')[0])
+            for layer in trans_model.encoder.layer[::-1][:num_rand_layers]:
+                layer.apply(trans_model._init_weights)
+            print(f're-initialised the last {num_rand_layers} transformer layers')
+            options -= 1
+
         if ('spkr_embed' in system_args) or ('utt_embed' in system_args): 
             print('using speaker embeddings')
             trans_model = extra_embed(trans_model, trans_name)
+            options -= 1
+
+        assert(options == 0), "invalid system args given"
         return trans_model
 
     ### util methods for models ###########################################

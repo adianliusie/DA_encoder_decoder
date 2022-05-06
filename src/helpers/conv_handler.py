@@ -7,7 +7,8 @@ import re
 import os
 
 from ..config import config
-from ..utils import load_json, flatten, load_list 
+from ..utils import load_json, flatten, load_list
+from ..utils.glove_utils import GloveTokenizer
 from ..models.hugging_utils import get_tokenizer
 
 class Utterance():
@@ -34,24 +35,29 @@ class Conversation():
     def __getitem__(self, k):
         return self.utts[k]
 
+    def __len__(self):
+        return len(self.utts)
+
 class ConvHandler:    
-    def __init__(self, transformer, filters=None, 
+    def __init__(self, system, filters=None, 
                  special_tokens=None, tqdm_disable=False):
         """ Initialises the Conversation helper """
         
-        if transformer:
-            self.transformer = transformer
-            self.tokenizer = get_tokenizer(transformer)
-        
-        if special_tokens:
-            self.add_speaker_tokens(special_tokens)
+        self.system  = system
+        self.special_tok = False #whether speaker tokens are added
+
+        if system == 'glove':
+             self.tokenizer = GloveTokenizer()
+            
+        elif system:
+            self.tokenizer = get_tokenizer(system)
+            if special_tokens:
+                self.special_tok = True
+                self.tokenizer.add_tokens(special_tokens, special_tokens=True)
             
         self.cleaner = TextCleaner(filters=filters)
         self.tqdm_disable = tqdm_disable
     
-    def add_speaker_tokens(self, tokens):
-        self.tokenizer.add_tokens(tokens, special_tokens=True)
-        
     def prep_filtered_data(self, path, lim=None, max_len=4090, quiet=False):
         def conv_len(conv):
             utt_tok_len = [len(utt.ids[:-1]) for utt in conv]
@@ -65,7 +71,10 @@ class ConvHandler:
         """ Given path, will load json and process data for downstream tasks """
         assert path.split('.')[-1] == 'json', "data must be in json format"
 
-        path = f'{config.base_dir}/data/{path}'
+        #take relative path if an absolute path is not given
+        if path[0] != '/':
+            path = f'{config.base_dir}/data/{path}' 
+            
         raw_data = load_json(path)
         self.labels = self.load_label_info(path)
 
@@ -118,8 +127,14 @@ class ConvHandler:
         for conv in data:
             for utt in conv:
                 speaker_id = self.speaker_dict[utt.speaker]
-                tok = self.tokenizer(f'[SPKR_{speaker_id}]').input_ids[1]
-                utt.spkr_id = (speaker_id, tok)
+                
+                #If speaker token is needed
+                if self.special_tok: 
+                    spkr_tok = self.tokenizer(f'[SPKR_{speaker_id}]').input_ids[1]
+                else:
+                    spkr_tok = None
+                
+                utt.spkr_id = (speaker_id, spkr_tok)
     
     def __getitem__(self, x:str):
         """ returns conv with a given conv_id if exists in dataset """

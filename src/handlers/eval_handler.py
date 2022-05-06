@@ -26,6 +26,9 @@ class BaseLoader(TrainHandler):
         #load training arguments and set up helpers
         self.model_args = self.dir.load_args('model_args')
         super().set_up_helpers(self.model_args)
+        ### TEMP #####################################################
+        self.device = 'cuda:2' if torch.cuda.is_available() else 'cpu' 
+        ##############################################################
         
         #load final model
         self.load_model()
@@ -67,7 +70,7 @@ class EvalHandler(BaseLoader):
         predictions, labels = [], []
         for k, batch in tqdm(enumerate(eval_batches, start=1)):
             output = self.model_output(batch)
-            y = F.softmax(output.logits.squeeze(0), dim=-1)
+            y = F.softmax(output.y.squeeze(0), dim=-1)
             predictions.append(y.cpu().numpy())
             labels.append(batch.labels.squeeze(0).cpu().numpy())
         return predictions, labels

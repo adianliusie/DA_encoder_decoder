@@ -84,7 +84,9 @@ class FlatBatcher(BaseBatcher):
             utt_ids = flatten(utt_ids)
             ids = flatten(ids)
             
-            labels = [utt.label for utt in conv]
+            #get utterance labels if the data has them, else don't
+            labels = [utt.label for utt in conv] if \
+                        hasattr(conv[0], 'label') else [0]*len(conv)
                       
             #add to data set    
             if self.max_len==None or len(utt_ids)<self.max_len:
